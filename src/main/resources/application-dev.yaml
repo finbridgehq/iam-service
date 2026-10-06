@@ -1,0 +1,74 @@
+server:
+  port: 8081
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update # En desarrollo, permitimos que Hibernate actualice el esquema de la base de datos automáticamente
+  datasource:
+    url: jdbc:postgresql://${IAM_DB_HOST:localhost}:${IAM_DB_PORT:5432}/${IAM_DB_NAME:vankoo_iam_db_dev}
+    username: ${IAM_DB_USERNAME:admin}
+    password: ${IAM_DB_PASSWORD:password}
+  mail:
+    # Mailpit: acepta lo que le manden y lo enseña en http://localhost:8025 en vez de
+    # entregarlo. Mismo SMTP que en producción, solo que sin credenciales ni TLS.
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+  cloud:
+    #function:
+    #  definition: userCreatedConsumer # Definimos el bean que actuará como consumidor de mensajes
+    stream:
+      kafka:
+        binder:
+          brokers: ${KAFKA_HOST:localhost}:${KAFKA_EXTERNAL_PORT:9092}
+          auto-create-topics: true
+          producer-properties:
+            acks: all # Garantiza que el mensaje se ha replicado en todos los brokers antes de considerarlo enviado
+            retries: 3 # Número de reintentos en caso de fallo
+            enable.idempotence: true # Evita duplicados en caso de reintentos
+      bindings:
+        # SALIDA: Nombre lógico para tu StreamBridge
+        # Este nombre debe coincidir con el del streamBridge.send()
+        iam-out-0:
+          destination: vankoo.iam.events
+          content-type: application/json
+        # ENTRADA: Nombre basado en la función (Bean)
+        #billingEventsConsumer-in-0:
+        #  destination: vankoo.billing.events
+        #  group: iam-service-group
+
+# Usamos logs de Hibernate para mostrar las consultas SQL, ya que nos da más control sobre el formato y la información
+logging:
+  level:
+    org.hibernate.SQL: debug
+
+eureka:
+  instance:
+    prefer-ip-address: false # En desarrollo, no es necesario usar IP, el hostname funciona bien
+  client:
+    register-with-eureka: true # Buscamos registrarnos en Eureka
+    fetch-registry: true # Queremos obtener la lista de servicios registrados para poder comunicarnos con ellos
+    service-url:
+      defaultZone: ${DISCOVERY_SERVER_URL:http://localhost:8761/eureka/} # En desarrollo, apuntamos a localhost para Eureka
+
+documentation:
+  local-url: http://localhost:${IAM_SERVICE_PORT:8081} # En desarrollo, el servicio se verá a través de localhost
+  gateway-url: http://localhost:${API_GATEWAY_PORT:8080}/iam # En desarrollo, el API Gateway se verá a través de localhost
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # En desarrollo, exponemos solo los endpoints de salud e info por temas de seguridad, pero también para no saturar el log
+        include: "health,info" # Importante para que Eureka vea el estado del IAM
+
+mail:
+  password-reset:
+    web-url: ${PASSWORD_RESET_WEB_URL:http://localhost:5173/iam/reset}
+    mobile-url: ${PASSWORD_RESET_MOBILE_URL:vankoo://reset-password}

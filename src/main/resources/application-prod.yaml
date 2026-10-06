@@ -1,0 +1,21 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate # En producción, solo queremos validar el esquema, no modificarlo
+  mail:
+    # Sin valores por defecto a propósito: si falta el relay, el servicio no arranca.
+    # Peor que no arrancar sería arrancar mandando enlaces que no llegan a nadie.
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+logging:
+  level:
+    org.hibernate.SQL: error # En producción, solo queremos ver errores relacionados con las consultas SQL
