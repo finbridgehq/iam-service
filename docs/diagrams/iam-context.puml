@@ -1,0 +1,80 @@
+@startuml Vankoo – Domain Model Diagram (Grouped by Bounded Context)
+
+package "IAM Context" {
+
+    class User <<(A, #27D3F5) Aggregate Root>> {
+        - id: UserId
+        - email: Email
+        - password: Password
+        - roles: Set<Role>
+        - status: UserStatus
+        + hasPermission(permissionCode: string): boolean
+        + changePassword(newPassword: Password)
+        + deactivate()
+    }
+
+    class Role <<(E, #89b86e) Entity>> {
+        - id: long
+        - name: RoleType
+        - permissions: Set<Permission>
+        + addPermission(permission: Permission)
+    }
+
+    enum RoleType <<(V, #FFD700) Value Object>> {
+        ROLE_ADMIN
+        ROLE_USER
+        ROLE_MYPE
+        ROLE_INVESTOR
+    }
+
+    class Permission <<(E, #89b86e) Entity>> {
+        - id: long
+        - code: PermissionCode
+        - description: string
+    }
+    note left
+    Example code:
+    "invoice:write"
+    end note
+
+    class PermissionCode <<(V, #FFD700) Value Object>> {
+        - value: string
+        + resource(): string
+        + action(): string
+    }
+
+    class UserId <<(V, #FFD700) Value Object>> {
+        - uuid: string
+    }
+
+    class Email <<(V, #FFD700) Value Object>> {
+        - address: string
+        + validate(): boolean
+    }
+
+    class Password <<(V, #FFD700) Value Object>> {
+        - hashedValue: string
+        + matches(raw: string): boolean
+    }
+
+    enum UserStatus <<(V, #FFD700) Value Object>> {
+        ACTIVE
+        INACTIVE
+        LOCKED
+    }
+
+    ' Relationships
+    User *-- UserId
+    User *-- Email
+    User *-- Password
+    User o-- UserStatus
+
+    ' Nota: En la implementación física, esto se mapea a tablas
+    ' pero en el modelo de dominio lo vemos como una composición/agregación.
+    User "1" o-- "1..*" Role : assigned >
+    Role "1" o-- "1..*" RoleType : identifies as >
+    Role "1..*" o-- "1..*" Permission : grants >
+    Permission "1" *-- "1..*" PermissionCode : defines >
+}
+
+@enduml

@@ -1,0 +1,78 @@
+# Perfil para Azure Container Apps (Sprint 2). Parte del mismo código que `docker`,
+# pero sin los vecinos del Compose: no hay Eureka, no hay Kafka y la base de datos
+# es un Azure Database for PostgreSQL. Todo valor sensible llega por variable de
+# entorno desde los secrets de la Container App.
+server:
+  port: 8081
+
+spring:
+  jpa:
+    hibernate:
+      # PARCHE TEMPORAL: el proyecto no tiene Flyway ni Liquibase, así que nada crea
+      # el esquema en una base vacía. Con `validate` (perfil prod) el primer arranque
+      # falla. Volver a `validate` cuando existan migraciones versionadas.
+      ddl-auto: update
+  datasource:
+    url: jdbc:postgresql://${IAM_DB_HOST}:${IAM_DB_PORT:5432}/${IAM_DB_NAME}?sslmode=${IAM_DB_SSLMODE:require}
+    username: ${IAM_DB_USERNAME}
+    password: ${IAM_DB_PASSWORD}
+  mail:
+    # Sin proveedor de correo todavía: las variables quedan definidas pero vacías.
+    # Recuperar contraseña responde 202 igual; el envío falla y se registra en el log
+    # (PasswordResetRequestedEventHandler lo captura). Rellenar cuando se elija SMTP.
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+# PARCHE TEMPORAL: sin broker en Azure. Activa LoggingEventService en lugar del
+# publicador de Kafka. Poner en true cuando exista Event Hubs y configurar el binder.
+vankoo:
+  events:
+    enabled: false
+
+# No hay discovery server en Azure: el gateway resuelve por el DNS interno del
+# Container Apps Environment. Sin esto el cliente de Eureka reintenta registrarse
+# contra un host inexistente y llena el log.
+eureka:
+  client:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Solo lo que necesita el probe de la Container App. El resto (env, heapdump,
+        # loggers) es público en WebSecurityConfiguration y no debe salir a internet.
+        include: health,info
+  health:
+    # El binder de Kafka no está configurado; su indicador marcaría el servicio como DOWN.
+    binders:
+      enabled: false
+    # PARCHE TEMPORAL: sin SMTP configurado el indicador de correo pone /actuator/health
+    # en DOWN. Volver a habilitarlo cuando se rellenen las variables MAIL_*.
+    mail:
+      enabled: false
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+documentation:
+  local-url: https://${IAM_PUBLIC_HOST}
+  gateway-url: https://${IAM_GATEWAY_HOST}/iam
+
+logging:
+  level:
+    org.hibernate.SQL: error
+
+mail:
+  password-reset:
+    web-url: ${PASSWORD_RESET_WEB_URL}
+    mobile-url: ${PASSWORD_RESET_MOBILE_URL:vankoo://reset-password}
