@@ -1,0 +1,79 @@
+server:
+  port: 8081 # El puerto interno del contenedor
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+  datasource:
+    # Dentro de Docker, el host es el nombre del servicio de la DB en el compose
+    url: jdbc:postgresql://${IAM_DB_HOST:iam-db-postgres}:${IAM_DB_PORT:5432}/${IAM_DB_NAME:vankoo_iam_db_dev}
+    username: ${IAM_DB_USERNAME:admin}
+    password: ${IAM_DB_PASSWORD:password}
+  mail:
+    # Dentro de la red de Docker, Mailpit responde por su nombre de servicio.
+    host: ${MAIL_HOST:mailpit}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+  cloud:
+    #function:
+    #  definition: userCreatedConsumer # Definimos el bean que actuará como consumidor de mensajes
+    stream:
+      kafka:
+        binder:
+          # Dentro de Docker, Kafka se ve a través del puerto 9094 (INTERNAL)
+          brokers: ${KAFKA_HOST:kafka-broker}:${KAFKA_INTERNAL_PORT:9094}
+          auto-create-topics: true
+          producer-properties:
+            acks: all
+            retries: 3
+            enable.idempotence: true
+      bindings:
+        # SALIDA: Nombre lógico para tu StreamBridge
+        # Este nombre debe coincidir con el del streamBridge.send()
+        iam-out-0:
+          destination: vankoo.iam.events
+          content-type: application/json
+        # ENTRADA: Nombre basado en la función (Bean)
+        #billingEventsConsumer-in-0:
+        #  destination: vankoo.billing.events
+        #  group: iam-service-group
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+
+eureka:
+  instance:
+    # Usamos el nombre que le daremos al servicio en el docker-compose
+    hostname: ${IAM_SERVICE_HOST:iam-service}
+    prefer-ip-address: true # CRÍTICO para comunicación entre contenedores
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: ${DISCOVERY_SERVER_URL:http://discovery-server:8761/eureka/}
+
+documentation:
+  local-url: http://${IAM_DOCUMENTATION_SERVER_URL:localhost}:${IAM_SERVICE_PORT:8081} # En Docker, el servicio se verá a través del puerto 8081
+  gateway-url: http://${IAM_DOCUMENTATION_GATEWAY_URL:localhost}:${API_GATEWAY_PORT:8080}/iam # En Docker, el API Gateway se verá a través del puerto 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # En Docker, es útil exponer todos los endpoints de gestión para monitoreo y debugging
+        # Ya que la red es interna, no hay riesgo de exponer información sensible al exterior
+        include: "*"
+
+mail:
+  password-reset:
+    # localhost y no el nombre del servicio: este enlace lo abre un navegador en la
+    # máquina de quien desarrolla, no un contenedor.
+    web-url: ${PASSWORD_RESET_WEB_URL:http://localhost:5173/iam/reset}
+    mobile-url: ${PASSWORD_RESET_MOBILE_URL:vankoo://reset-password}
