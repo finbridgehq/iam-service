@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # En develop un push nuevo no debe cortar un despliegue a la mitad.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build, test and coverage
+    runs-on: ubuntu-latest
+
+    # contextLoads arranca la aplicación completa con el perfil dev, que
+    # necesita PostgreSQL. Kafka, Eureka y el correo no hacen falta para arrancar.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: vankoo_iam_db_ci
+          POSTGRES_USER: vankoo
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vankoo -d vankoo_iam_db_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    # Valores solo para la CI: la base es desechable y la clave JWT no firma
+    # nada fuera de este job.
+    env:
+      SPRING_PROFILES_ACTIVE: dev
+      IAM_DB_NAME: vankoo_iam_db_ci
+      IAM_DB_USERNAME: vankoo
+      IAM_DB_PASSWORD: ci-only-password
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef0123456789abcdef0123456789abcdef
+      JWT_EXPIRATION_DAYS: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Build and test
+        run: ./mvnw -B verify
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          csv=target/site/jacoco/jacoco.csv
+          [ -f "$csv" ] || exit 0
+          awk -F, 'NR > 1 { missed += $8; covered += $9 }
+            END { printf "### Cobertura de líneas: %.1f %% (%d de %d)\n", 100 * covered / (missed + covered), covered, missed + covered }' \
+            "$csv" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 14
+
+  deliver:
+    name: Deliver
+    needs: [build-test]
+    # Solo lo que entra en develop llega al ambiente de desarrollo.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && vars.AZURE_CLIENT_ID != ''
+    permissions:
+      contents: read
+      id-token: write # login en Azure por OIDC, sin contraseña guardada
+    uses: finbridgehq/infra/.github/workflows/deliver-container-app.yml@develop
+    with:
+      image: iam-service
+      container-app: vankoo-iam-service
+    secrets: inherit
