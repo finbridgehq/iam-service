@@ -1,7 +1,8 @@
 # Perfil para Azure Container Apps (Sprint 2). Parte del mismo código que `docker`,
-# pero sin los vecinos del Compose: no hay Eureka, no hay Kafka y la base de datos
-# es un Azure Database for PostgreSQL. Todo valor sensible llega por variable de
-# entorno desde los secrets de la Container App.
+# pero sin los vecinos del Compose: no hay Eureka, la base de datos es un Azure
+# Database for PostgreSQL y el broker de eventos es Azure Event Hubs, que habla el
+# protocolo de Kafka. Todo valor sensible llega por variable de entorno desde los
+# secrets de la Container App.
 server:
   port: 8081
 
@@ -30,12 +31,42 @@ spring:
           auth: true
           starttls:
             enable: true
+  cloud:
+    stream:
+      kafka:
+        binder:
+          # <namespace>.servicebus.windows.net:9093, desde la capa messaging de vankoo-infra.
+          brokers: ${KAFKA_BROKERS:}
+          # Event Hubs no deja crear topics desde los clientes: los crea Terraform.
+          auto-create-topics: false
+          # Valen para el productor y para cualquier consumidor futuro.
+          configuration:
+            security.protocol: SASL_SSL
+            sasl.mechanism: PLAIN
+            # Usuario literal $ConnectionString; contraseña, la cadena de conexión de la
+            # regla de acceso de IAM (secret kafka-connection-string).
+            sasl.jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username="${KAFKA_SASL_USERNAME:$ConnectionString}" password="${KAFKA_SASL_PASSWORD:}";
+            # Valores que pide Event Hubs: corta las conexiones inactivas a los 240 s
+            # y exige al menos 60 s de timeout para el productor idempotente.
+            request.timeout.ms: 60000
+            metadata.max.age.ms: 180000
+            connections.max.idle.ms: 180000
+          producer-properties:
+            acks: all
+            enable.idempotence: true
+            # Event Hubs cierra la conexión si un envío supera 1 046 528 bytes.
+            max.request.size: 1000000
+      bindings:
+        iam-out-0:
+          destination: vankoo.iam.events
+          content-type: application/json
 
-# PARCHE TEMPORAL: sin broker en Azure. Activa LoggingEventService en lugar del
-# publicador de Kafka. Poner en true cuando exista Event Hubs y configurar el binder.
+# Publica en Event Hubs solo cuando la Container App trae KAFKA_ENABLED=true (y con
+# ello la dirección y la clave). Sin esa variable sigue LoggingEventService, que
+# descarta los eventos en el log, como antes de existir el broker.
 vankoo:
   events:
-    enabled: false
+    enabled: ${KAFKA_ENABLED:false}
 
 # No hay discovery server en Azure: el gateway resuelve por el DNS interno del
 # Container Apps Environment. Sin esto el cliente de Eureka reintenta registrarse
@@ -52,9 +83,10 @@ management:
         # loggers) es público en WebSecurityConfiguration y no debe salir a internet.
         include: health,info
   health:
-    # El binder de Kafka no está configurado; su indicador marcaría el servicio como DOWN.
+    # Con Event Hubs, el indicador del binder de Kafka entra en /actuator/health; sin
+    # broker marcaría el servicio como DOWN, así que va con el mismo interruptor.
     binders:
-      enabled: false
+      enabled: ${KAFKA_ENABLED:false}
     # PARCHE TEMPORAL: sin SMTP configurado el indicador de correo pone /actuator/health
     # en DOWN. Volver a habilitarlo cuando se rellenen las variables MAIL_*.
     mail:
